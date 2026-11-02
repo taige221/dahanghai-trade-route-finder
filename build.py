@@ -17,6 +17,8 @@ CHARACTER_SCRIPT = ROOT / "rom-investigation/extract_character_data.py"
 CHARACTER_JSON = ROOT / "rom-investigation/output/character-roster.json"
 ITEM_SCRIPT = ROOT / "rom-investigation/extract_item_data.py"
 ITEM_JSON = ROOT / "rom-investigation/output/item-catalog.json"
+EXPLORATION_SCRIPT = Path(__file__).with_name("build_exploration_catalog.py")
+EXPLORATION_JSON = Path(__file__).with_name("data") / "exploration-catalog.json"
 PORTRAIT_DIR = Path(__file__).with_name("assets") / "portraits"
 
 PRICE_COLUMNS = [
@@ -68,7 +70,13 @@ def load_data() -> dict:
     assert len({item["id"] for item in items}) == 121
     assert sum(item["category"] == "武器" for item in items) == 34
     assert sum(item["category"] == "防具" for item in items) == 16
-    return {"ports": ports, "goods": goods, "sells": sells, "offers": offers, "characters": characters, "items": items}
+    exploration = json.loads(EXPLORATION_JSON.read_text(encoding="utf-8"))
+    assert len(exploration) == 169
+    assert sum(item["kind"] == "发现物" for item in exploration) == 151
+    assert sum(item["kind"] == "海怪" for item in exploration) == 13
+    assert sum(item["kind"] == "自然灾害/航海异常" for item in exploration) == 5
+    assert all(item["name"] and item["description"] and item["coordinateLabel"] for item in exploration)
+    return {"ports": ports, "goods": goods, "sells": sells, "offers": offers, "characters": characters, "items": items, "exploration": exploration}
 
 
 TEMPLATE = r'''<!doctype html>
@@ -342,6 +350,36 @@ TEMPLATE = r'''<!doctype html>
     .port-tag.hidden { color: #79521b; background: rgba(198,156,84,.12); border-color: rgba(126,91,32,.3); }
     .evidence-card { padding: 11px 13px; color: #626d67; background: rgba(255,255,255,.2); border: 1px solid rgba(16,37,42,.14); font-size: 10px; line-height: 1.65; }
 
+    .exploration-workspace { margin-top: 24px; }
+    .exploration-filters { display: grid; grid-template-columns: minmax(240px, 1.5fr) minmax(150px, .7fr) minmax(170px, .8fr) auto; gap: 10px; padding: 14px; background: rgba(8,29,35,.92); border: 1px solid rgba(228,201,135,.28); }
+    .exploration-filters .ghost { align-self: end; height: 43px; }
+    .exploration-note { margin: 0 0 14px; padding: 12px 15px; color: rgba(247,243,232,.68); background: rgba(23,107,109,.12); border-left: 3px solid var(--sea-bright); font-size: 11px; line-height: 1.7; }
+    .exploration-body { display: grid; grid-template-columns: minmax(390px, .86fr) minmax(480px, 1.2fr); gap: 16px; min-height: 610px; }
+    .exploration-list-shell, .exploration-detail { min-width: 0; border: 1px solid rgba(228,201,135,.5); box-shadow: var(--shadow); }
+    .exploration-list-shell { color: var(--ink); background: var(--paper); }
+    .exploration-list { max-height: 720px; overflow: auto; }
+    .exploration-row { width: 100%; display: grid; grid-template-columns: 42px minmax(150px, 1fr) minmax(105px, auto); gap: 11px; align-items: center; padding: 11px 13px; border: 0; border-bottom: 1px solid var(--paper-line); color: var(--ink); background: transparent; text-align: left; }
+    .exploration-row:hover, .exploration-row[aria-current="true"] { background: rgba(23,107,109,.1); }
+    .exploration-row[aria-current="true"] { box-shadow: inset 3px 0 var(--sea); }
+    .exploration-mark { width: 36px; height: 36px; display: grid; place-items: center; color: #3f351f; background: #dbc184; border: 1px solid #87662f; font: 700 16px Georgia, "Songti SC", serif; }
+    .exploration-name { display: block; font: 700 14px Georgia, "Songti SC", serif; }
+    .exploration-meta { display: block; margin-top: 4px; color: #64746e; font-size: 10px; }
+    .exploration-coord { color: #365b59; text-align: right; font: 10px ui-monospace, monospace; }
+    .exploration-detail { align-self: start; position: sticky; top: 18px; color: var(--ink); background: var(--paper); }
+    .exploration-banner { display: grid; grid-template-columns: 118px 1fr; min-height: 144px; background: linear-gradient(135deg, #d5bd86, var(--paper) 52%, #e8dab8); border-bottom: 1px solid rgba(16,37,42,.2); }
+    .exploration-emblem { display: grid; place-items: center; color: var(--brass-light); background: linear-gradient(145deg, #0d2a32, #06191f); border-right: 1px solid rgba(198,156,84,.55); font: 700 31px Georgia, "Songti SC", serif; }
+    .exploration-title { padding: 22px 24px 16px; }
+    .exploration-title h2 { margin: 8px 0 10px; font-size: clamp(24px, 3vw, 36px); line-height: 1.08; }
+    .exploration-stats { display: grid; grid-template-columns: repeat(4, 1fr); margin: 14px 18px 0; border: 1px solid rgba(16,37,42,.18); }
+    .exploration-stat { min-width: 0; padding: 11px 10px; border-right: 1px solid rgba(16,37,42,.15); }
+    .exploration-stat:last-child { border: 0; }
+    .exploration-stat span { display: block; color: #6b766f; font-size: 9px; }
+    .exploration-stat strong { display: block; margin-top: 4px; font: 700 12px ui-monospace, monospace; overflow-wrap: anywhere; }
+    .exploration-section { padding: 17px 18px 0; }
+    .exploration-section:last-child { padding-bottom: 20px; }
+    .exploration-section h3 { margin: 0 0 10px; color: #5a625d; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+    .exploration-copy { padding: 13px 15px; color: #d7ece7; background: var(--navy-2); border-left: 4px solid var(--sea-bright); font-size: 12px; line-height: 1.75; }
+
     @media (max-width: 980px) {
       .workspace { grid-template-columns: 1fr; }
       .query-panel { position: relative; top: auto; border-radius: 4px 18px 4px 4px; }
@@ -360,6 +398,11 @@ TEMPLATE = r'''<!doctype html>
       .item-body { grid-template-columns: 1fr; }
       .item-detail { position: relative; top: auto; }
       .item-list { max-height: 520px; }
+      .exploration-filters { grid-template-columns: 1fr 1fr; }
+      .exploration-filters .ghost { grid-column: 2; }
+      .exploration-body { grid-template-columns: 1fr; }
+      .exploration-detail { position: relative; top: auto; }
+      .exploration-list { max-height: 520px; }
     }
     @media (max-width: 650px) {
       .shell { width: min(100% - 22px, 1480px); padding-top: 17px; }
@@ -389,7 +432,10 @@ TEMPLATE = r'''<!doctype html>
       #character-search { font-size: 16px; }
       .item-filters { grid-template-columns: 1fr; }
       .item-filters .ghost { grid-column: auto; }
+      .exploration-filters { grid-template-columns: 1fr; }
+      .exploration-filters .ghost { grid-column: auto; }
       #item-search { font-size: 16px; }
+      #exploration-search { font-size: 16px; }
       .person-row { grid-template-columns: 52px minmax(0, 1fr) auto; }
       .person-row img { width: 40px; height: 48px; }
       .person-port { display: none; }
@@ -403,6 +449,13 @@ TEMPLATE = r'''<!doctype html>
       .attribute-grid, .audit-grid { grid-template-columns: 1fr; }
       .item-row { grid-template-columns: 42px minmax(0, 1fr) auto; }
       .item-place { display: none; }
+      .exploration-row { grid-template-columns: 38px minmax(0, 1fr); }
+      .exploration-coord { grid-column: 2; text-align: left; }
+      .exploration-banner { grid-template-columns: 86px 1fr; min-height: 126px; }
+      .exploration-title { padding: 17px 14px 13px; }
+      .exploration-stats { grid-template-columns: 1fr 1fr; }
+      .exploration-stat:nth-child(2) { border-right: 0; }
+      .exploration-stat:nth-child(-n+2) { border-bottom: 1px solid rgba(16,37,42,.15); }
       .item-banner { grid-template-columns: 92px 1fr; }
       .item-emblem span { width: 58px; height: 58px; font-size: 22px; }
       .item-title { padding: 19px 14px 15px; }
@@ -428,6 +481,7 @@ TEMPLATE = r'''<!doctype html>
       <button class="nav-tab" type="button" data-page="trade-page" aria-selected="true">贸易航路</button>
       <button class="nav-tab" type="button" data-page="character-page" aria-selected="false">人物名册</button>
       <button class="nav-tab" type="button" data-page="item-page" aria-selected="false">道具图鉴</button>
+      <button class="nav-tab" type="button" data-page="exploration-page" aria-selected="false">发现与海况</button>
     </nav>
 
     <main class="workspace page-panel" id="trade-page">
@@ -610,6 +664,45 @@ TEMPLATE = r'''<!doctype html>
           <div class="item-list" id="item-list"></div>
         </section>
         <aside class="item-detail" id="item-detail" aria-live="polite"></aside>
+      </div>
+    </main>
+
+    <main class="exploration-workspace page-panel" id="exploration-page" hidden>
+      <header class="roster-intro">
+        <div>
+          <h2>海图档案 · 发现与海况</h2>
+          <p>收录当前 ROM 的全部发现物坐标、海怪事件点，以及文本可确认的自然灾害与航海异常。可按名称、类别、事件编号或经纬度搜索。</p>
+        </div>
+        <div class="roster-count"><strong id="exploration-total">169</strong> 条记录</div>
+      </header>
+
+      <section class="exploration-filters" aria-label="发现物与海况筛选">
+        <label>名称 / 坐标 / 编号
+          <input id="exploration-search" type="search" autocomplete="off" placeholder="例如：罗塞塔、风暴、51.6°N、0x154">
+        </label>
+        <label>类别
+          <select id="exploration-category"><option value="">全部类别</option></select>
+        </label>
+        <label>记录类型
+          <select id="exploration-kind"><option value="">全部类型</option></select>
+        </label>
+        <button class="ghost" type="button" id="exploration-reset">清空</button>
+      </section>
+      <div class="roster-examples">
+        <span>快速查阅</span>
+        <button class="chip exploration-example" data-query="巨人石像">巨人石像</button>
+        <button class="chip exploration-example" data-query="海怪">海怪事件点</button>
+        <button class="chip exploration-example" data-query="暴风雨">暴风雨</button>
+        <button class="chip exploration-example" data-query="浓雾">浓雾</button>
+      </div>
+      <p class="exploration-note">发现物简述是按 ROM 名称整理的目录说明；ROM 坐标表只保存名称索引、地图坐标和评价值，没有独立长描述。经纬度按地图像素换算（经度 = X ÷ 6 − 29°，再折算到东/西经 180°范围；纬度 = 90° − Y ÷ 7）。海怪显示固定海图事件点；自然灾害/航海异常按事件文本收录，ROM 中未找到可核实的固定坐标。</p>
+
+      <div class="exploration-body">
+        <section class="exploration-list-shell" aria-label="发现物与海况查询结果">
+          <div class="roster-list-head"><span id="exploration-status" role="status" aria-live="polite">显示全部 169 条</span><span>类型 / 经纬度</span></div>
+          <div class="exploration-list" id="exploration-list"></div>
+        </section>
+        <aside class="exploration-detail" id="exploration-detail" aria-live="polite"></aside>
       </div>
     </main>
   </div>
@@ -1017,11 +1110,92 @@ TEMPLATE = r'''<!doctype html>
       <section class="item-section"><h3>ROM 依据</h3><div class="evidence-card">道具 ID ${item.id}（${item.idHex}） · 类型 ${item.runtimeTypeHex} · 数值 ${item.runtimeValue}<br>${escapeHTML(item.evidence)}</div></section>`;
   }
 
+  const explorationEls = {
+    search: $('exploration-search'), category: $('exploration-category'), kind: $('exploration-kind'),
+    list: $('exploration-list'), detail: $('exploration-detail'), status: $('exploration-status')
+  };
+  let selectedExplorationId = DATA.exploration[0]?.id;
+
+  function populateExplorationFilters() {
+    const filters = [
+      [explorationEls.category, uniqueSorted(DATA.exploration.map(item => item.category))],
+      [explorationEls.kind, uniqueSorted(DATA.exploration.map(item => item.kind))]
+    ];
+    for (const [select, values] of filters) {
+      select.insertAdjacentHTML('beforeend', values.map(value => `<option value="${escapeHTML(value)}">${escapeHTML(value)}</option>`).join(''));
+    }
+  }
+
+  function filteredExploration() {
+    const query = explorationEls.search.value.trim().toLocaleLowerCase('zh-CN');
+    const rows = DATA.exploration.filter(item => {
+      const searchable = [item.name, item.kind, item.category, item.description, item.coordinateLabel,
+        item.latitude, item.longitude, item.mapX, item.mapY, item.eventType, item.messageId, item.rating]
+        .filter(value => value !== null && value !== undefined).join(' ').toLocaleLowerCase('zh-CN');
+      return (!query || searchable.includes(query)) &&
+        (!explorationEls.category.value || item.category === explorationEls.category.value) &&
+        (!explorationEls.kind.value || item.kind === explorationEls.kind.value);
+    });
+    if (!query) return rows;
+    return rows.sort((a, b) => {
+      const rank = item => item.name.toLocaleLowerCase('zh-CN') === query ? 0 :
+        item.name.toLocaleLowerCase('zh-CN').includes(query) ? 1 : 2;
+      return rank(a) - rank(b) || a.id - b.id;
+    });
+  }
+
+  function renderExplorationList() {
+    const rows = filteredExploration();
+    explorationEls.status.textContent = rows.length ? `找到 ${rows.length} / ${DATA.exploration.length} 条` : '没有匹配记录';
+    if (!rows.length) {
+      explorationEls.list.innerHTML = `<div class="roster-empty"><div class="empty-mark">海</div><h3>没有找到记录</h3><p>试试名称、事件编号、坐标，或清空类别筛选。</p></div>`;
+      explorationEls.detail.innerHTML = `<div class="roster-empty"><h3>档案暂空</h3><p>没有符合当前条件的记录。</p></div>`;
+      return;
+    }
+    if (!rows.some(item => item.id === selectedExplorationId)) selectedExplorationId = rows[0].id;
+    explorationEls.list.innerHTML = rows.map(item => `
+      <button class="exploration-row" type="button" data-exploration-id="${item.id}" aria-current="${item.id === selectedExplorationId}">
+        <span class="exploration-mark">${escapeHTML(item.name.slice(0, 1))}</span>
+        <span><span class="exploration-name">${escapeHTML(item.name)}</span><span class="exploration-meta">${escapeHTML(item.kind)} · ${escapeHTML(item.category)}</span></span>
+        <span class="exploration-coord">${escapeHTML(item.coordinateLabel)}</span>
+      </button>`).join('');
+    explorationEls.list.querySelectorAll('[data-exploration-id]').forEach(button => button.addEventListener('click', () => {
+      selectedExplorationId = Number(button.dataset.explorationId);
+      renderExplorationList();
+    }));
+    renderExplorationDetail(DATA.exploration.find(item => item.id === selectedExplorationId));
+  }
+
+  function renderExplorationDetail(item) {
+    const hasCoordinates = item.latitude !== null && item.longitude !== null;
+    const extraLabel = item.rating !== undefined ? '发现评价' : item.eventType !== undefined ? '事件类型' : '事件文本 ID';
+    const extraValue = item.rating !== undefined ? item.rating : item.eventType !== undefined ? item.eventType : item.messageId || '—';
+    const sourceId = item.messageId ? ` · 文本 ${item.messageId}` : '';
+    explorationEls.detail.innerHTML = `
+      <div class="exploration-banner">
+        <div class="exploration-emblem">${escapeHTML(item.name.slice(0, 1))}</div>
+        <div class="exploration-title">
+          <div class="dossier-kicker">SEA CHART RECORD · NO. ${String(item.id).padStart(3, '0')}</div>
+          <h2>${escapeHTML(item.name)}</h2>
+          <div class="identity-line"><span class="tag country">${escapeHTML(item.kind)}</span><span class="tag">${escapeHTML(item.category)}</span></div>
+        </div>
+      </div>
+      <div class="exploration-stats">
+        <div class="exploration-stat"><span>纬度</span><strong>${hasCoordinates ? `${Math.abs(item.latitude).toFixed(1)}°${item.latitude >= 0 ? 'N' : 'S'}` : '无固定坐标'}</strong></div>
+        <div class="exploration-stat"><span>经度</span><strong>${hasCoordinates ? `${Math.abs(item.longitude).toFixed(1)}°${item.longitude >= 0 ? 'E' : 'W'}` : '无固定坐标'}</strong></div>
+        <div class="exploration-stat"><span>ROM 地图坐标</span><strong>${hasCoordinates ? `X ${item.mapX} · Y ${item.mapY}` : '动态 / 未记录'}</strong></div>
+        <div class="exploration-stat"><span>${extraLabel}</span><strong>${escapeHTML(extraValue)}</strong></div>
+      </div>
+      <section class="exploration-section"><h3>条目说明</h3><div class="exploration-copy">${escapeHTML(item.description)}</div></section>
+      <section class="exploration-section"><h3>位置与依据</h3><div class="evidence-card">${escapeHTML(item.coordinateLabel)}${sourceId}<br>${escapeHTML(item.locationBasis)}</div></section>`;
+  }
+
   document.querySelectorAll('.nav-tab').forEach(tab => tab.addEventListener('click', () => {
     document.querySelectorAll('.nav-tab').forEach(item => item.setAttribute('aria-selected', String(item === tab)));
     document.querySelectorAll('.page-panel').forEach(panel => { panel.hidden = panel.id !== tab.dataset.page; });
     if (tab.dataset.page === 'character-page') renderCharacterList();
     if (tab.dataset.page === 'item-page') renderItemList();
+    if (tab.dataset.page === 'exploration-page') renderExplorationList();
   }));
   [characterEls.search, characterEls.country, characterEls.identity, characterEls.region].forEach(input => {
     input.addEventListener(input === characterEls.search ? 'input' : 'change', renderCharacterList);
@@ -1054,10 +1228,29 @@ TEMPLATE = r'''<!doctype html>
     itemEls.category.value = itemEls.availability.value = '';
     renderItemList();
   }));
+  explorationEls.search.addEventListener('input', () => {
+    const rows = filteredExploration();
+    if (rows.length) selectedExplorationId = rows[0].id;
+    renderExplorationList();
+  });
+  [explorationEls.category, explorationEls.kind].forEach(input => input.addEventListener('change', renderExplorationList));
+  $('exploration-reset').addEventListener('click', () => {
+    explorationEls.search.value = explorationEls.category.value = explorationEls.kind.value = '';
+    selectedExplorationId = DATA.exploration[0]?.id;
+    renderExplorationList();
+    explorationEls.search.focus();
+  });
+  document.querySelectorAll('.exploration-example').forEach(button => button.addEventListener('click', () => {
+    explorationEls.search.value = button.dataset.query;
+    explorationEls.category.value = explorationEls.kind.value = '';
+    renderExplorationList();
+  }));
   populateCharacterFilters();
   renderCharacterList();
   populateItemFilters();
   renderItemList();
+  populateExplorationFilters();
+  renderExplorationList();
   </script>
 </body>
 </html>
@@ -1070,13 +1263,19 @@ def main() -> None:
         check=True,
     )
     subprocess.run([sys.executable, str(ITEM_SCRIPT)], check=True)
+    subprocess.run([sys.executable, str(EXPLORATION_SCRIPT)], check=True)
     data = load_data()
     compact = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     OUT_PATH.write_text(TEMPLATE.replace("__DATA__", compact), encoding="utf-8")
+    cloudflare_path = Path(__file__).with_name("cloudflare-dist") / "index.html"
+    cloudflare_path.parent.mkdir(parents=True, exist_ok=True)
+    cloudflare_path.write_bytes(OUT_PATH.read_bytes())
     print(f"wrote {OUT_PATH} ({OUT_PATH.stat().st_size:,} bytes)")
+    print(f"wrote {cloudflare_path} ({cloudflare_path.stat().st_size:,} bytes)")
     print(f"ports={len(data['ports'])} goods={len(data['goods'])} cells={len(data['ports']) * len(data['goods'])}")
     print(f"characters={len(data['characters'])} portraits={len(list(PORTRAIT_DIR.glob('*.png')))} verified_idle=66")
     print(f"items={len(data['items'])} weapons=34 armor=16")
+    print(f"exploration={len(data['exploration'])} discoveries=151 sea_monster_spots=13 hazards=5")
 
 
 if __name__ == "__main__":
